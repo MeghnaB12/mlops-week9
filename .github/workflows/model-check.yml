@@ -1,8 +1,11 @@
 name: Model Sanity Check
 
 on:
+  push:
+    branches: [main]          # Runs when you push directly to main
   pull_request:
-    branches: [main]
+    branches: [main]          # Runs when a PR targets main
+  workflow_dispatch:           # Allows manual run from Actions tab
 
 permissions:
   pull-requests: write
