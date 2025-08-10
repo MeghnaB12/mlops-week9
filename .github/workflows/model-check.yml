@@ -38,6 +38,10 @@ jobs:
         run: |
           set -e
           echo "$GCP_B64" > gcp-key.json
+
+          dvc init
+
+
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
           export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
           
