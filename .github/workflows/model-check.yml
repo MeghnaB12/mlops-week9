@@ -5,7 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   pull-requests: write
@@ -30,34 +29,36 @@ jobs:
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "dvc[gcs]" shap fairlearn evidently
+          pip install dvc shap fairlearn evidently
 
       - name: Set up GCP credentials and authenticate
         env:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
-          source .venv/bin/activate
           set -e
-
           echo "$GCP_B64" | base64 -d > gcp-key.json
-
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
           export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-
+          
           echo "✓ Decoded service account key"
           python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
-
+          
           echo "Installing Google Cloud CLI..."
           sudo apt-get update && sudo apt-get install -y google-cloud-cli
-
+          
           echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
           gcloud config set project workoutvideos
-
-          echo "Initializing DVC and pulling data..."
-          dvc init
-          dvc remote add -d gcsremote gcs://mlops-week9
-          dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
+          
+          echo "Running DVC pull in same session..."
+          source .venv/bin/activate
+          
+          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
+          
+          echo "Configuring DVC to use gcloud credentials..."
+          dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
+          
+          echo "Running DVC pull:"
           dvc pull -v
 
       - name: Data Quality Check
@@ -66,13 +67,14 @@ jobs:
           source .venv/bin/activate
           echo "## Data Quality Report" >> report.md
           python src/check_labels.py --data-path data/iris.csv >> report.md
-
+          
           SUSPICIOUS_COUNT=$(grep "Found" report.md | awk '{print $2}')
           echo "Suspicious labels found: $SUSPICIOUS_COUNT"
           echo "count=$SUSPICIOUS_COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Validate Label Quality
         run: |
+          echo "Checking if suspicious count is within tolerance..."
           if [ ${{ steps.label_check.outputs.count }} -gt 10 ]; then
             echo "Error: High number of suspicious labels detected (${{ steps.label_check.outputs.count }}). Aborting workflow."
             exit 1
@@ -86,7 +88,7 @@ jobs:
           python src/train.py
           python src/evaluate.py
           python src/plot_metrics.py
-
+      
       - name: Run Tests
         run: |
           source .venv/bin/activate
@@ -99,10 +101,10 @@ jobs:
         run: |
           source .venv/bin/activate
           echo "## Responsible AI Reports" >> report.md
-
+          
           echo "### 1. Generating SHAP Explanations..." >> report.md
           python src/generate_explanations.py >> report.md
-
+          
           echo "### 2. Checking Fairness (Fairlearn)..." >> report.md
           python src/check_fairness.py >> report.md
 
@@ -127,7 +129,8 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
+          # Append the SHAP plot to the report for CML
           echo "## Model Explainability (SHAP)" >> report.md
           echo "![SHAP Summary](./artifacts/shap_summary_global.png)" >> report.md
-
+          
           cml comment create report.md
