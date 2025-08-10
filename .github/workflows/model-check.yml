@@ -35,7 +35,7 @@ jobs:
           # Install dependencies, including DVC with GCS support
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install "dvc[gs]" shap fairlearn evidently
+          pip install dvc-gs shap fairlearn evidently
           
           # Handle GCP credentials
           set -e
