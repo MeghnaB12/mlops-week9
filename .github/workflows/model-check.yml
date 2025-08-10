@@ -1,126 +1,133 @@
 name: Model Sanity Check
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-  
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
 permissions:
-  pull-requests: write
-  contents: read
+  pull-requests: write
+  contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install "dvc[gcs]" shap fairlearn evidently
-          
-      - name: Set up GCP credentials and authenticate
-        env:
-          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
-        run: |
-          source .venv/bin/activate
-          set -e
-          echo "$GCP_B64" > gcp-key.json
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "dvc[gcs]" shap fairlearn evidently
 
-          dvc init
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-          
-          sudo apt-get update && sudo apt-get install -y google-cloud-cli
-          gcloud auth activate-service-account --key-file=gcp-key.json
-          gcloud config set project workoutvideos
+      - name: Set up GCP credentials and authenticate
+        env:
+          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
+        run: |
+          source .venv/bin/activate
+          set -e
 
-          dvc remote add -d gcsremote gcs://mlops-week9
-          dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
-          dvc pull -v
+          echo "$GCP_B64" | base64 --decode > gcp-key.json
 
-      - name: Data Quality Check
-        id: label_check
-        run: |
-          source .venv/bin/activate
-          echo "## Data Quality Report" >> report.md
-          python src/check_labels.py --data-path data/iris.csv >> report.md
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
+          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
 
-          SUSPICIOUS_COUNT=$(grep "Found" report.md | awk '{print $2}')
-          echo "Suspicious labels found: $SUSPICIOUS_COUNT"
-          echo "count=$SUSPICIOUS_COUNT" >> "$GITHUB_OUTPUT"
+          echo "✓ Decoded service account key"
+          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
 
-      - name: Validate Label Quality
-        run: |
-          echo "Checking if suspicious count is within tolerance..."
-          if [ ${{ steps.label_check.outputs.count }} -gt 10 ]; then
-            echo "Error: High number of suspicious labels detected (${{ steps.label_check.outputs.count }}). Aborting workflow."
-            exit 1
-          else
-            echo "Data quality check passed. Proceeding with training."
-          fi
+          echo "Installing Google Cloud CLI..."
+          sudo apt-get update && sudo apt-get install -y google-cloud-cli
 
-      - name: Run Training and Core Evaluation
-        run: |
-          source .venv/bin/activate
-          python src/train.py
-          python src/evaluate.py
-          python src/plot_metrics.py
+          echo "Authenticating with GCP..."
+          gcloud auth activate-service-account --key-file=gcp-key.json
+          gcloud config set project workoutvideos
 
-      - name: Run Tests
-        run: |
-          source .venv/bin/activate
-          echo "## Test Results" >> report.md
-          pytest --tb=short --disable-warnings >> report.md 2>&1 || echo "Tests failed" >> report.md
-          echo "Tests completed on $(date)" >> report.md
+          echo "Initializing DVC and pulling data..."
+          dvc init
+          dvc remote add -d gcsremote gcs://mlops-week9
+          dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
+          dvc pull -v
 
-      ### --- NEW RESPONSIBLE AI STAGE --- ###
-      - name: Run Responsible AI Checks
-        run: |
-          source .venv/bin/activate
-          echo "## Responsible AI Reports" >> report.md
+      - name: Data Quality Check
+        id: label_check
+        run: |
+          source .venv/bin/activate
+          echo "## Data Quality Report" >> report.md
+          python src/check_labels.py --data-path data/iris.csv >> report.md
 
-          echo "### 1. Generating SHAP Explanations..." >> report.md
-          python src/generate_explanations.py >> report.md
+          SUSPICIOUS_COUNT=$(grep "Found" report.md | awk '{print $2}')
+          echo "Suspicious labels found: $SUSPICIOUS_COUNT"
+          echo "count=$SUSPICIOUS_COUNT" >> "$GITHUB_OUTPUT"
 
-          echo "### 2. Checking Fairness (Fairlearn)..." >> report.md
-          python src/check_fairness.py >> report.md
+      - name: Validate Label Quality
+        run: |
+          if [ ${{ steps.label_check.outputs.count }} -gt 10 ]; then
+            echo "Error: High number of suspicious labels detected (${{ steps.label_check.outputs.count }}). Aborting workflow."
+            exit 1
+          else
+            echo "Data quality check passed. Proceeding with training."
+          fi
 
-          echo "### 3. Checking Data Drift (Evidently)..." >> report.md
-          python src/check_drift.py >> report.md
+      - name: Run Training and Core Evaluation
+        run: |
+          source .venv/bin/activate
+          python src/train.py
+          python src/evaluate.py
+          python src/plot_metrics.py
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: model-artifacts
-          path: |
-            artifacts/
-            report.md
+      - name: Run Tests
+        run: |
+          source .venv/bin/activate
+          echo "## Test Results" >> report.md
+          pytest --tb=short --disable-warnings >> report.md 2>&1 || echo "Tests failed" >> report.md
+          echo "Tests completed on $(date)" >> report.md
 
-      - name: Setup CML
-        uses: iterative/setup-cml@v2
-        env:
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ### --- NEW RESPONSIBLE AI STAGE --- ###
+      - name: Run Responsible AI Checks
+        run: |
+          source .venv/bin/activate
+          echo "## Responsible AI Reports" >> report.md
 
-      - name: Comment on PR with CML
-        env:
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source .venv/bin/activate
-          echo "## Model Explainability (SHAP)" >> report.md
-          echo "![SHAP Summary](./artifacts/shap_summary_global.png)" >> report.md
+          echo "### 1. Generating SHAP Explanations..." >> report.md
+          python src/generate_explanations.py >> report.md
 
-          cml comment create report.md
+          echo "### 2. Checking Fairness (Fairlearn)..." >> report.md
+          python src/check_fairness.py >> report.md
+
+          echo "### 3. Checking Data Drift (Evidently)..." >> report.md
+          python src/check_drift.py >> report.md
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts
+          path: |
+            artifacts/
+            report.md
+
+      - name: Setup CML
+        uses: iterative/setup-cml@v2
+        env:
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR with CML
+        env:
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source .venv/bin/activate
+          echo "## Model Explainability (SHAP)" >> report.md
+          echo "![SHAP Summary](./artifacts/shap_summary_global.png)" >> report.md
+
+          cml comment create report.md
