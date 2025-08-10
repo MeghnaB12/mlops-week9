@@ -32,39 +32,41 @@ jobs:
           pip install -r requirements.txt
           pip install dvc shap fairlearn evidently
 
-     - name: Set up GCP credentials and authenticate
-      env:
-        GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
-      run: |
-        set -e
-        echo "$GCP_B64" | base64 --decode > gcp-key.json
+      - name: Set up GCP credentials and authenticate
+        env:
+          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
+        run: |
+          set -e
+          echo "$GCP_B64" > gcp-key.json
     
         # Initialize DVC before any DVC commands 
-        dvc init
+          dvc init
+        
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
+          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
+    
+          echo "✓ Decoded service account key"
+          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
+    
+          echo "Installing Google Cloud CLI..."
+          sudo apt-get update && sudo apt-get install -y google-cloud-cli
+    
+          echo "Authenticating with GCP..."
+          gcloud auth activate-service-account --key-file=gcp-key.json
+          gcloud config set project workoutvideos
+    
+          echo "Running DVC pull in same session..."
+          source .venv/bin/activate
+    
+          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
 
-        echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-        export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
+          dvc remote add -d gcsremote gcs://mlops-week9
+          
+          echo "Configuring DVC to use gcloud credentials..."
+          dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
     
-        echo "✓ Decoded service account key"
-        python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
-    
-        echo "Installing Google Cloud CLI..."
-        sudo apt-get update && sudo apt-get install -y google-cloud-cli
-    
-        echo "Authenticating with GCP..."
-        gcloud auth activate-service-account --key-file=gcp-key.json
-        gcloud config set project mlopsweek1
-    
-        echo "Running DVC pull in same session..."
-        source .venv/bin/activate
-    
-        export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-    
-        echo "Configuring DVC to use gcloud credentials..."
-        dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
-    
-        echo "Running DVC pull:"
-        dvc pull -v
+          echo "Running DVC pull:"
+          dvc pull -v
 
       - name: Data Quality Check
         id: label_check
