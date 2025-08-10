@@ -37,32 +37,19 @@ jobs:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
           source .venv/bin/activate
-          
           set -e
           echo "$GCP_B64" > gcp-key.json
 
           dvc init
-
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
           export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-
-          echo "✓ Decoded service account key"
-          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
-
-          echo "Installing Google Cloud CLI..."
+          
           sudo apt-get update && sudo apt-get install -y google-cloud-cli
-
-          echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
           gcloud config set project workoutvideos
 
-          echo "Running DVC pull in same session..."
-
           dvc remote add -d gcsremote gcs://mlops-week9
-
           dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
-
-          echo "Running DVC pull:"
           dvc pull -v
 
       - name: Data Quality Check
