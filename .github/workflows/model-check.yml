@@ -52,7 +52,7 @@ jobs:
           # Initialize DVC, add remote, and pull data
           echo "Initializing DVC and pulling data..."
           dvc init
-          dvc remote add -d gcsremote gcs://mlops-week9
+          dvc remote add -d gcsremote gs://mlops-week9
           dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
           dvc pull -v
           
