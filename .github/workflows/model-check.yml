@@ -43,7 +43,7 @@ jobs:
           
           set -e
           # Decode the base64 secret into a valid JSON file
-          echo "$GCP_B64" | base64 --decode > gcp-key.json
+          echo "$GCP_B64" > gcp-key.json
 
           # Initialize DVC before any DVC commands
           dvc init
