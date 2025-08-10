@@ -38,6 +38,9 @@ jobs:
         env:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
+          # Activate the virtual environment
+          source .venv/bin/activate
+          
           set -e
           # Decode the base64 secret into a valid JSON file
           echo "$GCP_B64" > gcp-key.json
