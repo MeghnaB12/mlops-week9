@@ -30,10 +30,8 @@ jobs:
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install dvc shap fairlearn evidently
-          pip install dvc[gdrive] # Required for Google Drive, though gcs is in the next step.
-
-      # 💡 ADDED: Set up GCP and DVC configuration step
+          pip install "dvc[gcs]" shap fairlearn evidently
+       
       - name: Set up GCP credentials and authenticate
         env:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
