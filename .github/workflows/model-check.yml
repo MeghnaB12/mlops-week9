@@ -31,19 +31,16 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install "dvc[gcs]" shap fairlearn evidently
-       
+          
       - name: Set up GCP credentials and authenticate
         env:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
-          # Activate the virtual environment
           source .venv/bin/activate
           
           set -e
-          # Decode the base64 secret into a valid JSON file
           echo "$GCP_B64" > gcp-key.json
 
-          # Initialize DVC before any DVC commands
           dvc init
 
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
@@ -60,12 +57,9 @@ jobs:
           gcloud config set project workoutvideos
 
           echo "Running DVC pull in same session..."
-          source .venv/bin/activate
 
-          # Add the DVC remote for your GCS bucket
           dvc remote add -d gcsremote gcs://mlops-week9
 
-          # Configure DVC to use the GCP service account key for authentication
           dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
 
           echo "Running DVC pull:"
@@ -139,7 +133,6 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
-          # Append the SHAP plot to the report for CML
           echo "## Model Explainability (SHAP)" >> report.md
           echo "![SHAP Summary](./artifacts/shap_summary_global.png)" >> report.md
 
