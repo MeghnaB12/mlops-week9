@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
@@ -23,44 +24,38 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install dvc shap fairlearn evidently
-
-      - name: Set up GCP credentials and authenticate
+      - name: Install dependencies and set up DVC
         env:
           GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
+          # Create and activate virtual environment
+          python -m venv .venv
+          source .venv/bin/activate
+          
+          # Install dependencies, including DVC with GCS support
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "dvc[gcs]" shap fairlearn evidently
+          
+          # Handle GCP credentials
           set -e
           echo "$GCP_B64" | base64 -d > gcp-key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
           export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
           
-          echo "✓ Decoded service account key"
-          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
-          
+          # Install and authenticate with Google Cloud CLI
           echo "Installing Google Cloud CLI..."
           sudo apt-get update && sudo apt-get install -y google-cloud-cli
-          
-          echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
           gcloud config set project workoutvideos
           
-          echo "Running DVC pull in same session..."
-          source .venv/bin/activate
-          
-          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-          
-          echo "Configuring DVC to use gcloud credentials..."
-          dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
-          
-          echo "Running DVC pull:"
+          # Initialize DVC, add remote, and pull data
+          echo "Initializing DVC and pulling data..."
+          dvc init
+          dvc remote add -d gcsremote gcs://mlops-week9
+          dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
           dvc pull -v
-
+          
       - name: Data Quality Check
         id: label_check
         run: |
@@ -96,7 +91,6 @@ jobs:
           pytest --tb=short --disable-warnings >> report.md 2>&1 || echo "Tests failed" >> report.md
           echo "Tests completed on $(date)" >> report.md
 
-      ### --- NEW RESPONSIBLE AI STAGE --- ###
       - name: Run Responsible AI Checks
         run: |
           source .venv/bin/activate
@@ -129,7 +123,6 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source .venv/bin/activate
-          # Append the SHAP plot to the report for CML
           echo "## Model Explainability (SHAP)" >> report.md
           echo "![SHAP Summary](./artifacts/shap_summary_global.png)" >> report.md
           
