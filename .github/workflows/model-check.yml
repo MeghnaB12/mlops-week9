@@ -24,44 +24,37 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install dependencies and set up DVC
+        env:
+          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
         run: |
+          # 💡 CORRECTED: Consolidating all setup commands into one block
+          # to ensure DVC and its dependencies are active for all DVC commands.
+          
+          # Create and activate virtual environment
           python -m venv .venv
           source .venv/bin/activate
+          
+          # Install all dependencies, including DVC with GCS support
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install "dvc[gcs]" shap fairlearn evidently
           
-      - name: Set up GCP credentials and authenticate
-        env:
-          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
-        run: |
-          source .venv/bin/activate
-          
+          # Set up GCP credentials
           set -e
           echo "$GCP_B64" > gcp-key.json
-
+          
+          # Initialize DVC and configure remote
           dvc init
-
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
-
-          echo "✓ Decoded service account key"
-          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
-
+          dvc remote add -d gcsremote gcs://mlops-week9
+          dvc remote modify gcsremote gcp_service_account_keyfile gcp-key.json
+          
+          # Authenticate with gcloud and pull data
           echo "Installing Google Cloud CLI..."
           sudo apt-get update && sudo apt-get install -y google-cloud-cli
-
-          echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
           gcloud config set project workoutvideos
-
-          echo "Running DVC pull in same session..."
-
-          dvc remote add -d gcsremote gcs://mlops-week9
-
-          dvc remote modify gcsremote gcp_service_account_keyfile $(pwd)/gcp-key.json
-
+          
           echo "Running DVC pull:"
           dvc pull -v
 
